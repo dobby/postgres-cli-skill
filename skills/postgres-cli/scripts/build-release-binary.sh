@@ -2,7 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 OUTPUT_BIN="${SCRIPT_DIR}/postgres-cli"
 
 cd "${REPO_ROOT}"
@@ -15,4 +15,3 @@ chmod +x "${OUTPUT_BIN}"
 
 echo "Updated ${OUTPUT_BIN}"
 file "${OUTPUT_BIN}"
-

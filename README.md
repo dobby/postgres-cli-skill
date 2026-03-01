@@ -12,18 +12,17 @@ Install telemetry from this command is what gets skills indexed on [skills.sh](h
 
 ## Repository layout
 
-- `SKILL.md` skill metadata + instructions
-- `scripts/postgres-cli` prebuilt macOS arm64 release binary
-- `scripts/build-release-binary.sh` maintainer helper to rebuild `scripts/postgres-cli`
-- `references/postgres.toml.example` starter config
-- `references/SETUP.md` setup and usage guide
+- `skills/postgres-cli/SKILL.md` skill metadata + instructions
+- `skills/postgres-cli/scripts/postgres-cli` prebuilt macOS arm64 release binary
+- `skills/postgres-cli/scripts/build-release-binary.sh` maintainer helper to rebuild the binary
+- `skills/postgres-cli/references/postgres.toml.example` starter config
+- `skills/postgres-cli/references/SETUP.md` setup and usage guide
 
 ## Maintainer release workflow
 
 ```bash
-scripts/build-release-binary.sh
-git add scripts/postgres-cli
+skills/postgres-cli/scripts/build-release-binary.sh
+git add skills/postgres-cli/scripts/postgres-cli
 git commit -m "Refresh postgres-cli release binary"
 git push
 ```
-

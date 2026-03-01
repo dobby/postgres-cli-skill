@@ -34,6 +34,7 @@ struct Connection {
     password_env: Option<String>,
     application_name: Option<String>,
     sslmode: Option<String>,
+    schema: Option<SchemaValue>,
     allow_write: Option<bool>,
     statement_timeout_ms: Option<u64>,
     connect_timeout_s: Option<u64>,
@@ -280,7 +281,7 @@ fn find_in_path(bin: &str) -> Option<String> {
     None
 }
 
-fn normalize_search_path(schema: &Option<SchemaValue>) -> Result<Option<String>, String> {
+fn normalize_search_path(schema: Option<&SchemaValue>) -> Result<Option<String>, String> {
     let Some(schema) = schema else {
         return Ok(None);
     };
@@ -568,7 +569,7 @@ fn run() -> Result<i32, String> {
         ));
     }
 
-    let search_path = normalize_search_path(&config.schema)?;
+    let search_path = normalize_search_path(conn.schema.as_ref().or(config.schema.as_ref()))?;
 
     let code = if sql == "__ROWCOUNT_EXACT__" {
         run_exact_rowcounts(&psql_bin, conn, &config, search_path.as_deref())?

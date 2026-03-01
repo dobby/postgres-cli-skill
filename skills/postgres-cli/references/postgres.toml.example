@@ -1,5 +1,7 @@
 default_target = "local-read"
-schema = "public"
+# Global default search_path for all connections.
+# Array form maps to: SET search_path TO "bellimmo", "public";
+schema = ["bellimmo", "public"]
 schema_path = "db/schema.sql"
 statement_timeout_ms = 30000
 connect_timeout_s = 10
@@ -14,6 +16,8 @@ username = "app"
 password_env = "PGPASSWORD_APP"
 application_name = "codex-agent"
 sslmode = "prefer"
+# Optional per-connection override. If set, this is used instead of top-level `schema`.
+schema = ["bellimmo", "public"]
 allow_write = false
 
 [connections.local-write]

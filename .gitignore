@@ -1,5 +1,4 @@
 target/
-postgres-cli/
+/postgres-cli/
 .idea/
 .DS_Store
-

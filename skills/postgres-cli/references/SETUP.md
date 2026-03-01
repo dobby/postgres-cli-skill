@@ -39,15 +39,27 @@ psql --version
 
 Start from the bundled example:
 
+From this repository root:
+
 ```bash
-cp references/postgres.toml.example .agent/postgres.toml
+cp skills/postgres-cli/references/postgres.toml.example .agent/postgres.toml
+```
+
+From inside the installed skill directory (`.agents/skills/postgres-cli`):
+
+```bash
+cp references/postgres.toml.example /path/to/your-repo/.agent/postgres.toml
 ```
 
 Or create it manually:
 
+- Use array form for `schema` to set multiple entries in `search_path`.
+- Top-level `schema` applies to all targets by default.
+- `connections.<name>.schema` overrides top-level `schema` for that target.
+
 ```toml
 default_target = "webshop"
-schema = "public"
+schema = ["bellimmo", "public"]
 statement_timeout_ms = 30000
 connect_timeout_s = 10
 # Optional: only set if PATH does not already include psql
@@ -61,6 +73,7 @@ username = "webshop"
 password_env = "PGPASSWORD_WEBSHOP"
 application_name = "my-app"
 sslmode = "prefer"
+schema = ["bellimmo", "public"]
 allow_write = false
 ```
 
@@ -85,11 +98,11 @@ EOF
 From repo root:
 
 ```bash
-scripts/postgres-cli --target webshop --sql "SELECT now();"
+skills/postgres-cli/scripts/postgres-cli --target webshop --sql "SELECT now();"
 ```
 
 From any directory:
 
 ```bash
-scripts/postgres-cli --project-root /path/to/repo --target webshop --sql "SELECT now();"
+skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target webshop --sql "SELECT now();"
 ```
