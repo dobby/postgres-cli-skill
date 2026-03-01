@@ -82,7 +82,7 @@ fn parse_args() -> Result<CliArgs, String> {
             }
             "-h" | "--help" => {
                 print_help();
-                return Err(String::new());
+                return Err("__HELP__".to_string());
             }
             other => {
                 return Err(format!("Unknown argument: {other}"));
@@ -537,7 +537,11 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<i32, String> {
-    let args = parse_args()?;
+    let args = match parse_args() {
+        Ok(args) => args,
+        Err(e) if e == "__HELP__" => return Ok(0),
+        Err(e) => return Err(e),
+    };
     load_dotenv(&args.project_root)?;
     let config = load_config(&args.project_root)?;
     let psql_bin = resolve_psql(&config)?;
