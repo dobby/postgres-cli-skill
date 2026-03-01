@@ -1,51 +1,68 @@
-# postgres-cli skill
+# postgres-cli (V2)
 
-`postgres-cli` is a reusable agent skill for running PostgreSQL SQL and schema introspection through named project connections.
+`postgres-cli` is a Postgres command runner for agent and CI workflows.
 
-It also supports schema-cache generation for progressive agent context loading via:
+V2 is a clean-break release with:
 
-```bash
-skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target <name> --schema-cache update
-```
+- subcommands (`query`, `explain`, `introspect`, `schema-cache`, `targets`, `config`, `doctor`)
+- JSON output by default with a stable envelope
+- explicit write safety (`query --mode write` + `allow_write=true`)
+- JSON-first schema cache artifacts for progressive context loading
+- tri-platform skill launcher support (macOS arm64, Linux x86_64, Windows x86_64)
 
-## Schema cache file naming
-
-By default, schema cache table files are tenant-agnostic:
-
-- `tables/<table>.md` (`file_naming = "table"`)
-
-Configure this in your project's `.agent/postgres-cli/postgres.toml`:
-
-```toml
-[schema_cache]
-file_naming = "table"        # default
-# file_naming = "schema_table" # legacy behavior: tables/<schema>.<table>.md
-```
-
-When using `file_naming = "table"`, `postgres-cli` fails fast if two selected schemas contain the same
-table name. Use `schema_table` mode (or narrow `schema`/`search_path`) when duplicates are expected.
-
-## Install
+## Quick usage
 
 ```bash
-npx skills add dobby/postgres-cli-skill --skill postgres-cli
+skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read query --sql "SELECT now();"
 ```
 
-Install telemetry from this command is what gets skills indexed on [skills.sh](https://skills.sh/).
+```bash
+skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read introspect --kind tables
+```
+
+```bash
+skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read schema-cache update --all-tables
+```
+
+## Output formats
+
+Global `--format` supports:
+
+- `json` (default)
+- `text`
+- `csv`
+- `tsv`
+
+`csv`/`tsv` are available for tabular commands only.
+
+## Schema cache layout (JSON-first)
+
+```text
+.agent/postgres-cli/schema/
+├── index.json
+├── relations.json
+└── tables/
+    └── <table>.json (or <schema>.<table>.json)
+```
+
+Optional markdown (with `schema-cache update --with-markdown`):
+
+```text
+.agent/postgres-cli/schema/
+├── README.md
+├── relations.md
+└── tables/
+    └── <table>.md
+```
 
 ## Repository layout
 
-- `skills/postgres-cli/SKILL.md` skill metadata + instructions
-- `skills/postgres-cli/scripts/postgres-cli` prebuilt macOS arm64 release binary
-- `skills/postgres-cli/scripts/build-release-binary.sh` maintainer helper to rebuild the binary
+- `src/main.rs` V2 Rust CLI implementation
+- `skills/postgres-cli/SKILL.md` skill instructions for agents
+- `skills/postgres-cli/scripts/postgres-cli` platform launcher script
+- `skills/postgres-cli/scripts/bin/` prebuilt binaries
+- `skills/postgres-cli/scripts/build-release-binary.sh` local maintainer build helper
+- `skills/postgres-cli/scripts/refresh-binaries-from-release.sh` maintainer release refresh helper
 - `skills/postgres-cli/references/postgres.toml.example` starter config
 - `skills/postgres-cli/references/SETUP.md` setup and usage guide
-
-## Maintainer release workflow
-
-```bash
-skills/postgres-cli/scripts/build-release-binary.sh
-git add skills/postgres-cli/scripts/postgres-cli
-git commit -m "Refresh postgres-cli release binary"
-git push
-```
+- `.github/workflows/build-release.yml` CI + release pipeline

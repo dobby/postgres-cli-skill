@@ -1,4 +1,4 @@
-# Postgres CLI Setup
+# Postgres CLI Setup (V2)
 
 ## 1. Create config directory
 
@@ -6,27 +6,29 @@
 mkdir -p .agent/postgres-cli
 ```
 
-## 2. Install `psql` (Homebrew preferred)
+## 2. Install `psql`
 
-Install:
+Homebrew (macOS):
 
 ```bash
 brew install libpq
 ```
 
-Add `psql` to PATH:
+Add `psql` to PATH (Apple Silicon):
 
 ```bash
 echo 'export PATH="/opt/homebrew/opt/libpq/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
-For Intel Macs, use:
+Intel macOS:
 
 ```bash
 echo 'export PATH="/usr/local/opt/libpq/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
+
+Linux package managers should install `postgresql-client`/`libpq` equivalents.
 
 Verify:
 
@@ -37,102 +39,102 @@ psql --version
 
 ## 3. Create `.agent/postgres-cli/postgres.toml`
 
-Start from the bundled example:
-
-From this repository root:
+From repository root:
 
 ```bash
 cp skills/postgres-cli/references/postgres.toml.example .agent/postgres-cli/postgres.toml
 ```
 
-From inside the installed skill directory (`.agents/skills/postgres-cli`):
+The CLI resolves config from `.agent/postgres-cli/postgres.toml`.
+
+## 4. Configure secrets with env vars
+
+Preferred location:
 
 ```bash
-cp references/postgres.toml.example /path/to/your-repo/.agent/postgres-cli/postgres.toml
+cat > .agent/postgres-cli/.env <<'EOFVARS'
+PGPASSWORD_APP=your-password
+# Optional DSN mode:
+# DATABASE_URL_APP=postgres://user:pass@127.0.0.1:5432/app
+EOFVARS
 ```
 
-`postgres-cli` resolves config from `.agent/postgres-cli/` only. Keep any additional CLI-only config files in this same directory.
+Secrets policy:
 
-Or create it manually:
+- Allowed: `password_env`, `dsn_env`
+- Disallowed: plaintext `password`, plaintext `dsn`
 
-- Use array form for `schema` to set multiple entries in `search_path`.
-- Top-level `schema` applies to all targets by default.
-- `connections.<name>.schema` overrides top-level `schema` for that target.
-- `important_tables` controls which tables are cached by default in schema-cache mode.
-- Tables with direct FK relationships to those important tables are included automatically.
-
-```toml
-default_target = "webshop"
-schema = ["bellimmo", "public"]
-important_tables = ["bellimmo.clients", "bellimmo.orders", "public.audit_log"]
-statement_timeout_ms = 30000
-connect_timeout_s = 10
-# Optional: only set if PATH does not already include psql
-# psql_bin = "/absolute/path/to/psql"
-
-[connections.webshop]
-host = "127.0.0.1"
-port = 5432
-database = "webshop"
-username = "webshop"
-password_env = "PGPASSWORD_WEBSHOP"
-application_name = "my-app"
-sslmode = "prefer"
-schema = ["bellimmo", "public"]
-allow_write = false
-```
-
-## 4. Configure password environment variable
-
-Option A (shell):
+## 5. Validate config and connectivity
 
 ```bash
-export PGPASSWORD_WEBSHOP='your-password'
+skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo config validate
+skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read doctor
 ```
 
-Option B (`.agent/postgres-cli/.env`):
+## 6. Run queries and introspection
+
+Read query:
 
 ```bash
-cat > .agent/postgres-cli/.env <<'EOF'
-PGPASSWORD_WEBSHOP=your-password
-EOF
+skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read query --sql "SELECT now();"
 ```
 
-## 5. Run queries
-
-From repo root:
+Write query (explicit):
 
 ```bash
-skills/postgres-cli/scripts/postgres-cli --target webshop --sql "SELECT now();"
+skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-write query --mode write --sql "UPDATE users SET active = true WHERE id = 1;"
 ```
 
-From any directory:
+Introspect tables:
 
 ```bash
-skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target webshop --sql "SELECT now();"
+skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read introspect --kind tables
 ```
 
-## 6. Build schema cache for faster agent query planning
+## 7. Build schema cache for progressive agent context
 
-Use configured `important_tables`:
+Configured `important_tables` (+ direct FK neighbors):
 
 ```bash
-skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target webshop --schema-cache update
+skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read schema-cache update
 ```
 
-Load all tables in current schemas:
+All tables in `current_schemas(false)`:
 
 ```bash
-skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target webshop --schema-cache update --all-tables
+skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read schema-cache update --all-tables
 ```
 
-Generated files (single active snapshot):
+Generate optional markdown too:
+
+```bash
+skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read schema-cache update --with-markdown
+```
+
+Generated artifacts (JSON-first):
 
 ```text
 .agent/postgres-cli/schema/
 ├── index.json
+├── relations.json
+└── tables/
+    └── <table>.json
+```
+
+Optional markdown artifacts when `--with-markdown` is enabled:
+
+```text
+.agent/postgres-cli/schema/
 ├── README.md
 ├── relations.md
 └── tables/
-    └── <schema>.<table>.md
+    └── <table>.md
 ```
+
+## Troubleshooting
+
+- `CONFIG_NOT_FOUND`: create `.agent/postgres-cli/postgres.toml`.
+- `PSQL_NOT_FOUND`: install `psql` or set `psql_bin` in config.
+- `TARGET_UNKNOWN`: use `targets list` to discover configured targets.
+- `TARGET_WRITE_DISABLED`: run on a target with `allow_write = true` for `--mode write`.
+- `CONFIG_VALIDATION_FAILED`: run `config validate` and fix failed checks.

@@ -1,0 +1,114 @@
+name: build-release
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+
+jobs:
+  verify:
+    name: verify (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run tests
+        run: cargo test --all-targets
+
+  build-artifacts:
+    name: build artifact (${{ matrix.name }})
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            name: postgres-cli-darwin-arm64
+            bin: postgres-cli
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            name: postgres-cli-linux-x86_64
+            bin: postgres-cli
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            name: postgres-cli-windows-x86_64.exe
+            bin: postgres-cli.exe
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Collect artifact (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cp "target/${{ matrix.target }}/release/${{ matrix.bin }}" "${{ matrix.name }}"
+          chmod +x "${{ matrix.name }}"
+
+      - name: Collect artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.bin }}" "${{ matrix.name }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.name }}
+
+  release:
+    name: github release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-artifacts]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Flatten artifacts
+        run: |
+          find dist -type f -maxdepth 2 -print -exec cp {} . \;
+
+      - name: Checksums
+        run: |
+          shasum -a 256 postgres-cli-darwin-arm64 postgres-cli-linux-x86_64 postgres-cli-windows-x86_64.exe > checksums.txt
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            postgres-cli-darwin-arm64
+            postgres-cli-linux-x86_64
+            postgres-cli-windows-x86_64.exe
+            checksums.txt
