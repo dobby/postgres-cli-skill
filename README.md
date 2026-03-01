@@ -2,6 +2,12 @@
 
 `postgres-cli` is a reusable agent skill for running PostgreSQL SQL and schema introspection through named project connections.
 
+It also supports schema-cache generation for progressive agent context loading via:
+
+```bash
+skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target <name> --schema-cache update
+```
+
 ## Install
 
 ```bash

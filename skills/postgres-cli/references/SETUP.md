@@ -58,10 +58,13 @@ Or create it manually:
 - Use array form for `schema` to set multiple entries in `search_path`.
 - Top-level `schema` applies to all targets by default.
 - `connections.<name>.schema` overrides top-level `schema` for that target.
+- `important_tables` controls which tables are cached by default in schema-cache mode.
+- Tables with direct FK relationships to those important tables are included automatically.
 
 ```toml
 default_target = "webshop"
 schema = ["bellimmo", "public"]
+important_tables = ["bellimmo.clients", "bellimmo.orders", "public.audit_log"]
 statement_timeout_ms = 30000
 connect_timeout_s = 10
 # Optional: only set if PATH does not already include psql
@@ -87,7 +90,7 @@ Option A (shell):
 export PGPASSWORD_WEBSHOP='your-password'
 ```
 
-Option B (`.agent/.env`):
+Option B (`.agent/postgres-cli/.env`):
 
 ```bash
 cat > .agent/postgres-cli/.env <<'EOF'
@@ -107,4 +110,29 @@ From any directory:
 
 ```bash
 skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target webshop --sql "SELECT now();"
+```
+
+## 6. Build schema cache for faster agent query planning
+
+Use configured `important_tables`:
+
+```bash
+skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target webshop --schema-cache update
+```
+
+Load all tables in current schemas:
+
+```bash
+skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target webshop --schema-cache update --all-tables
+```
+
+Generated files (single active snapshot):
+
+```text
+.agent/postgres-cli/schema/
+├── index.json
+├── README.md
+├── relations.md
+└── tables/
+    └── <schema>.<table>.md
 ```

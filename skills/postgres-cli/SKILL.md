@@ -32,7 +32,8 @@ Read [Setup Guide](references/SETUP.md).
 
 - `--project-root` pointing at the repo root (optional if command runs from repo root).
 - `--target` with a valid named connection.
-- Exactly one of `--sql "<query>"`, `--sql-file <path>`, or `--introspect <mode>`.
+- For query mode, exactly one of `--sql "<query>"`, `--sql-file <path>`, or `--introspect <mode>`.
+- For schema-cache mode, use `--schema-cache update` (optionally `--all-tables`).
 
 ## Command Patterns
 
@@ -54,6 +55,20 @@ Run introspection:
 scripts/postgres-cli --project-root /path/to/repo --target webshop-read --introspect tables
 ```
 
+Update schema cache from configured `important_tables`:
+
+```bash
+scripts/postgres-cli --project-root /path/to/repo --target webshop-read --schema-cache update
+```
+
+`important_tables` seeds the cache; directly related tables are added automatically.
+
+Update schema cache for all tables in `current_schemas(false)`:
+
+```bash
+scripts/postgres-cli --project-root /path/to/repo --target webshop-read --schema-cache update --all-tables
+```
+
 Supported introspection modes:
 
 - `schemas`
@@ -66,6 +81,15 @@ Supported introspection modes:
 ## Agent Guidelines
 
 - Pass a valid named target with `--target`.
-- Use exactly one of `--sql`, `--sql-file`, or `--introspect`.
+- Use either query mode (`--sql`/`--sql-file`/`--introspect`) or schema-cache mode (`--schema-cache update`).
 - Prefer read targets unless write operations are explicitly requested.
 - Return relevant query output to the user.
+
+## Progressive Schema Loading
+
+When schema context is needed, use this order to avoid overloading context:
+
+1. Read `.agent/postgres-cli/schema/index.json`.
+2. Load only required files from `.agent/postgres-cli/schema/tables/`.
+3. Read `.agent/postgres-cli/schema/relations.md` only when join/relationship reasoning is needed.
+4. If cache is missing or stale, ask to run `--schema-cache update`.

@@ -2,6 +2,10 @@ default_target = "local-read"
 # Global default search_path for all connections.
 # Array form maps to: SET search_path TO "bellimmo", "public";
 schema = ["bellimmo", "public"]
+# Tables to prioritize in schema cache mode (`--schema-cache update`).
+# Use schema-qualified names to avoid ambiguity.
+# Directly related tables (foreign-key inbound/outbound) are included automatically.
+important_tables = ["bellimmo.clients", "bellimmo.orders", "public.audit_log"]
 schema_path = "db/schema.sql"
 statement_timeout_ms = 30000
 connect_timeout_s = 10
