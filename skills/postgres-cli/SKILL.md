@@ -63,6 +63,17 @@ scripts/postgres-cli --project-root /path/to/repo --target webshop-read --schema
 
 `important_tables` seeds the cache; directly related tables are added automatically.
 
+Schema cache file naming is configured in `.agent/postgres-cli/postgres.toml`:
+
+```toml
+[schema_cache]
+file_naming = "table"        # default: tables/<table>.md
+# file_naming = "schema_table" # legacy: tables/<schema>.<table>.md
+```
+
+With `file_naming = "table"`, schema-cache update fails if selected schemas contain duplicate table
+names. Use `schema_table` or narrow configured schemas/search_path when duplicates are expected.
+
 Update schema cache for all tables in `current_schemas(false)`:
 
 ```bash

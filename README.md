@@ -8,6 +8,23 @@ It also supports schema-cache generation for progressive agent context loading v
 skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target <name> --schema-cache update
 ```
 
+## Schema cache file naming
+
+By default, schema cache table files are tenant-agnostic:
+
+- `tables/<table>.md` (`file_naming = "table"`)
+
+Configure this in your project's `.agent/postgres-cli/postgres.toml`:
+
+```toml
+[schema_cache]
+file_naming = "table"        # default
+# file_naming = "schema_table" # legacy behavior: tables/<schema>.<table>.md
+```
+
+When using `file_naming = "table"`, `postgres-cli` fails fast if two selected schemas contain the same
+table name. Use `schema_table` mode (or narrow `schema`/`search_path`) when duplicates are expected.
+
 ## Install
 
 ```bash

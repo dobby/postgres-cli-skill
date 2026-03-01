@@ -17,11 +17,24 @@ struct Config {
     schema: Option<SchemaValue>,
     #[allow(dead_code)]
     schema_path: Option<String>,
+    schema_cache: Option<SchemaCacheConfig>,
     statement_timeout_ms: Option<u64>,
     connect_timeout_s: Option<u64>,
     psql_bin: Option<String>,
     important_tables: Option<Vec<String>>,
     connections: BTreeMap<String, Connection>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SchemaCacheConfig {
+    file_naming: Option<SchemaCacheFileNaming>,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum SchemaCacheFileNaming {
+    Table,
+    SchemaTable,
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,8 +81,18 @@ impl TableRef {
         format!("{}.{}", self.schema, self.table)
     }
 
-    fn file_name(&self) -> String {
-        format!("{}.{}.md", self.schema, self.table)
+    fn display_name(&self, file_naming: SchemaCacheFileNaming) -> String {
+        match file_naming {
+            SchemaCacheFileNaming::Table => self.table.clone(),
+            SchemaCacheFileNaming::SchemaTable => self.fq_name(),
+        }
+    }
+
+    fn file_name(&self, file_naming: SchemaCacheFileNaming) -> String {
+        match file_naming {
+            SchemaCacheFileNaming::Table => format!("{}.md", self.table),
+            SchemaCacheFileNaming::SchemaTable => format!("{}.{}.md", self.schema, self.table),
+        }
     }
 }
 
@@ -119,8 +142,10 @@ struct TableSchemaDoc {
 #[derive(Debug, Clone, Eq, PartialEq, Ord, PartialOrd, Serialize)]
 struct RelationEdge {
     constraint_name: String,
+    from_schema: String,
     from_table: String,
     from_column: String,
+    to_schema: String,
     to_table: String,
     to_column: String,
 }
@@ -137,9 +162,18 @@ struct SchemaIndex {
 
 #[derive(Debug, Serialize)]
 struct SchemaIndexTable {
-    schema: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    schema: Option<String>,
     table: String,
     file: String,
+}
+
+fn schema_cache_file_naming(config: &Config) -> SchemaCacheFileNaming {
+    config
+        .schema_cache
+        .as_ref()
+        .and_then(|cfg| cfg.file_naming)
+        .unwrap_or(SchemaCacheFileNaming::Table)
 }
 
 fn parse_args() -> Result<CliArgs, String> {
@@ -1079,9 +1113,14 @@ fn markdown_escape(value: &str) -> String {
         .replace('\r', " ")
 }
 
-fn render_table_markdown(doc: &TableSchemaDoc, generated_at: u64, target: &str) -> String {
+fn render_table_markdown(
+    doc: &TableSchemaDoc,
+    generated_at: u64,
+    target: &str,
+    file_naming: SchemaCacheFileNaming,
+) -> String {
     let mut out = String::new();
-    out.push_str(&format!("# {}\n\n", doc.table.fq_name()));
+    out.push_str(&format!("# {}\n\n", doc.table.display_name(file_naming)));
     out.push_str(&format!("- Target: `{}`\n", target));
     out.push_str(&format!("- Generated at (unix): `{}`\n\n", generated_at));
 
@@ -1160,7 +1199,19 @@ fn render_table_markdown(doc: &TableSchemaDoc, generated_at: u64, target: &str) 
     out
 }
 
-fn render_relations_markdown(edges: &[RelationEdge], generated_at: u64, target: &str) -> String {
+fn relation_table_label(schema: &str, table: &str, file_naming: SchemaCacheFileNaming) -> String {
+    match file_naming {
+        SchemaCacheFileNaming::Table => table.to_string(),
+        SchemaCacheFileNaming::SchemaTable => format!("{schema}.{table}"),
+    }
+}
+
+fn render_relations_markdown(
+    edges: &[RelationEdge],
+    generated_at: u64,
+    target: &str,
+    file_naming: SchemaCacheFileNaming,
+) -> String {
     let mut out = String::new();
     out.push_str("# Relations\n\n");
     out.push_str(&format!("- Target: `{}`\n", target));
@@ -1173,9 +1224,11 @@ fn render_relations_markdown(edges: &[RelationEdge], generated_at: u64, target: 
     }
 
     for edge in edges {
+        let from_table = relation_table_label(&edge.from_schema, &edge.from_table, file_naming);
+        let to_table = relation_table_label(&edge.to_schema, &edge.to_table, file_naming);
         out.push_str(&format!(
             "- `{}`: `{}.{}` -> `{}.{}`\n",
-            edge.constraint_name, edge.from_table, edge.from_column, edge.to_table, edge.to_column
+            edge.constraint_name, from_table, edge.from_column, to_table, edge.to_column
         ));
     }
 
@@ -1218,6 +1271,7 @@ fn write_schema_snapshot(
     index: &SchemaIndex,
     docs: &[TableSchemaDoc],
     edges: &[RelationEdge],
+    file_naming: SchemaCacheFileNaming,
 ) -> Result<(), String> {
     let config_dir = preferred_config_dir(project_root);
     fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
@@ -1240,12 +1294,14 @@ fn write_schema_snapshot(
     write_text(&tmp_dir.join("README.md"), &render_schema_readme(index))?;
     write_text(
         &tmp_dir.join("relations.md"),
-        &render_relations_markdown(edges, index.generated_at, &index.target),
+        &render_relations_markdown(edges, index.generated_at, &index.target, file_naming),
     )?;
 
     for doc in docs {
-        let table_path = tmp_dir.join("tables").join(doc.table.file_name());
-        let content = render_table_markdown(doc, index.generated_at, &index.target);
+        let table_path = tmp_dir
+            .join("tables")
+            .join(doc.table.file_name(file_naming));
+        let content = render_table_markdown(doc, index.generated_at, &index.target, file_naming);
         write_text(&table_path, &content)?;
     }
 
@@ -1257,6 +1313,61 @@ fn write_schema_snapshot(
     Ok(())
 }
 
+fn validate_table_file_name_collisions(
+    selected_tables: &[TableRef],
+    file_naming: SchemaCacheFileNaming,
+) -> Result<(), String> {
+    if file_naming != SchemaCacheFileNaming::Table {
+        return Ok(());
+    }
+
+    let mut table_to_schemas: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    for table in selected_tables {
+        table_to_schemas
+            .entry(table.table.clone())
+            .or_default()
+            .insert(table.schema.clone());
+    }
+
+    let mut collisions = Vec::new();
+    for (table_name, schemas) in table_to_schemas {
+        if schemas.len() <= 1 {
+            continue;
+        }
+        collisions.push(format!(
+            "- table '{}' exists in schemas: {}",
+            table_name,
+            schemas.into_iter().collect::<Vec<_>>().join(", ")
+        ));
+    }
+
+    if collisions.is_empty() {
+        return Ok(());
+    }
+
+    Err(format!(
+        "Schema cache file naming collision for [schema_cache].file_naming = \"table\":\n{}\nUse [schema_cache] file_naming = \"schema_table\" or narrow configured schemas/search_path.",
+        collisions.join("\n")
+    ))
+}
+
+fn build_schema_index_tables(
+    selected_tables: &[TableRef],
+    file_naming: SchemaCacheFileNaming,
+) -> Vec<SchemaIndexTable> {
+    selected_tables
+        .iter()
+        .map(|t| SchemaIndexTable {
+            schema: match file_naming {
+                SchemaCacheFileNaming::Table => None,
+                SchemaCacheFileNaming::SchemaTable => Some(t.schema.clone()),
+            },
+            table: t.table.clone(),
+            file: format!("tables/{}", t.file_name(file_naming)),
+        })
+        .collect::<Vec<_>>()
+}
+
 fn run_schema_cache_update(
     args: &CliArgs,
     psql_bin: &str,
@@ -1265,6 +1376,8 @@ fn run_schema_cache_update(
     search_path: Option<&str>,
     target: &str,
 ) -> Result<i32, String> {
+    let file_naming = schema_cache_file_naming(config);
+
     if !args.all_tables {
         let important = config
             .important_tables
@@ -1284,6 +1397,7 @@ fn run_schema_cache_update(
     if !args.all_tables {
         selected_tables = expand_with_directly_related_tables(selected_tables, &relation_pairs);
     }
+    validate_table_file_name_collisions(&selected_tables, file_naming)?;
 
     let mut docs = Vec::new();
     for table in &selected_tables {
@@ -1301,9 +1415,11 @@ fn run_schema_cache_update(
         for fk in &doc.outbound_fks {
             edge_set.insert(RelationEdge {
                 constraint_name: fk.constraint_name.clone(),
-                from_table: doc.table.fq_name(),
+                from_schema: doc.table.schema.clone(),
+                from_table: doc.table.table.clone(),
                 from_column: fk.from_column.clone(),
-                to_table: format!("{}.{}", fk.to_schema, fk.to_table),
+                to_schema: fk.to_schema.clone(),
+                to_table: fk.to_table.clone(),
                 to_column: fk.to_column.clone(),
             });
         }
@@ -1315,14 +1431,7 @@ fn run_schema_cache_update(
         .map_err(|e| e.to_string())?
         .as_secs();
 
-    let index_tables = selected_tables
-        .iter()
-        .map(|t| SchemaIndexTable {
-            schema: t.schema.clone(),
-            table: t.table.clone(),
-            file: format!("tables/{}", t.file_name()),
-        })
-        .collect::<Vec<_>>();
+    let index_tables = build_schema_index_tables(&selected_tables, file_naming);
 
     let mode = if args.all_tables {
         "all_tables".to_string()
@@ -1339,7 +1448,7 @@ fn run_schema_cache_update(
         tables: index_tables,
     };
 
-    write_schema_snapshot(&args.project_root, &index, &docs, &edges)?;
+    write_schema_snapshot(&args.project_root, &index, &docs, &edges, file_naming)?;
 
     println!(
         "Schema cache updated: target={}, mode={}, tables={}, relations={}",
@@ -1427,4 +1536,150 @@ fn run() -> Result<i32, String> {
     }
 
     Ok(code)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config_minimal_toml(extra: &str) -> String {
+        format!(
+            "{}\n[connections.dev]\ndatabase = \"app\"\nusername = \"postgres\"\n",
+            extra
+        )
+    }
+
+    #[test]
+    fn schema_cache_file_naming_defaults_to_table() {
+        let toml = config_minimal_toml("");
+        let config: Config = toml::from_str(&toml).expect("config should parse");
+        assert_eq!(
+            schema_cache_file_naming(&config),
+            SchemaCacheFileNaming::Table
+        );
+    }
+
+    #[test]
+    fn schema_cache_file_naming_parses_schema_table() {
+        let toml = config_minimal_toml("[schema_cache]\nfile_naming = \"schema_table\"");
+        let config: Config = toml::from_str(&toml).expect("config should parse");
+        assert_eq!(
+            schema_cache_file_naming(&config),
+            SchemaCacheFileNaming::SchemaTable
+        );
+    }
+
+    #[test]
+    fn schema_cache_file_naming_rejects_invalid_value() {
+        let toml = config_minimal_toml("[schema_cache]\nfile_naming = \"bogus\"");
+        assert!(toml::from_str::<Config>(&toml).is_err());
+    }
+
+    #[test]
+    fn table_ref_file_name_respects_mode() {
+        let t = TableRef {
+            schema: "bellimmo".to_string(),
+            table: "account".to_string(),
+        };
+        assert_eq!(t.file_name(SchemaCacheFileNaming::Table), "account.md");
+        assert_eq!(
+            t.file_name(SchemaCacheFileNaming::SchemaTable),
+            "bellimmo.account.md"
+        );
+    }
+
+    #[test]
+    fn table_mode_collision_check_fails_for_same_table_in_multiple_schemas() {
+        let selected = vec![
+            TableRef {
+                schema: "bellimmo".to_string(),
+                table: "account".to_string(),
+            },
+            TableRef {
+                schema: "public".to_string(),
+                table: "account".to_string(),
+            },
+        ];
+        let err = validate_table_file_name_collisions(&selected, SchemaCacheFileNaming::Table)
+            .expect_err("collision should fail");
+        assert!(err.contains("account"));
+        assert!(err.contains("schema_table"));
+    }
+
+    #[test]
+    fn schema_table_mode_collision_check_allows_duplicate_table_names() {
+        let selected = vec![
+            TableRef {
+                schema: "bellimmo".to_string(),
+                table: "account".to_string(),
+            },
+            TableRef {
+                schema: "public".to_string(),
+                table: "account".to_string(),
+            },
+        ];
+        validate_table_file_name_collisions(&selected, SchemaCacheFileNaming::SchemaTable)
+            .expect("schema_table mode should allow duplicates");
+    }
+
+    #[test]
+    fn index_table_serialization_omits_schema_in_table_mode() {
+        let selected = vec![TableRef {
+            schema: "bellimmo".to_string(),
+            table: "account".to_string(),
+        }];
+
+        let table_mode = build_schema_index_tables(&selected, SchemaCacheFileNaming::Table);
+        let json = serde_json::to_value(&table_mode).expect("serialize");
+        assert_eq!(json[0]["table"], "account");
+        assert_eq!(json[0]["file"], "tables/account.md");
+        assert!(json[0].get("schema").is_none());
+
+        let schema_mode = build_schema_index_tables(&selected, SchemaCacheFileNaming::SchemaTable);
+        let json_schema = serde_json::to_value(&schema_mode).expect("serialize");
+        assert_eq!(json_schema[0]["schema"], "bellimmo");
+        assert_eq!(json_schema[0]["file"], "tables/bellimmo.account.md");
+    }
+
+    #[test]
+    fn relation_rendering_strips_schema_in_table_mode() {
+        let edges = vec![RelationEdge {
+            constraint_name: "fk_orders_client".to_string(),
+            from_schema: "bellimmo".to_string(),
+            from_table: "orders".to_string(),
+            from_column: "client_id".to_string(),
+            to_schema: "bellimmo".to_string(),
+            to_table: "client".to_string(),
+            to_column: "id".to_string(),
+        }];
+
+        let table_mode = render_relations_markdown(&edges, 1, "dev", SchemaCacheFileNaming::Table);
+        assert!(table_mode.contains("`orders.client_id` -> `client.id`"));
+        assert!(!table_mode.contains("bellimmo.orders"));
+
+        let schema_mode =
+            render_relations_markdown(&edges, 1, "dev", SchemaCacheFileNaming::SchemaTable);
+        assert!(schema_mode.contains("`bellimmo.orders.client_id` -> `bellimmo.client.id`"));
+    }
+
+    #[test]
+    fn table_markdown_heading_respects_file_naming_mode() {
+        let doc = TableSchemaDoc {
+            table: TableRef {
+                schema: "bellimmo".to_string(),
+                table: "account".to_string(),
+            },
+            columns: Vec::new(),
+            primary_key_columns: Vec::new(),
+            outbound_fks: Vec::new(),
+            inbound_fks: Vec::new(),
+            indexes: Vec::new(),
+        };
+
+        let table_mode = render_table_markdown(&doc, 1, "dev", SchemaCacheFileNaming::Table);
+        assert!(table_mode.starts_with("# account\n"));
+
+        let schema_mode = render_table_markdown(&doc, 1, "dev", SchemaCacheFileNaming::SchemaTable);
+        assert!(schema_mode.starts_with("# bellimmo.account\n"));
+    }
 }
