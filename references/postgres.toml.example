@@ -1,0 +1,27 @@
+default_target = "local-read"
+schema = "public"
+schema_path = "db/schema.sql"
+statement_timeout_ms = 30000
+connect_timeout_s = 10
+# Optional override. If omitted, postgres-cli resolves `psql` from PATH.
+# psql_bin = "/absolute/path/to/psql"
+
+[connections.local-read]
+host = "127.0.0.1"
+port = 5432
+database = "app"
+username = "app"
+password_env = "PGPASSWORD_APP"
+application_name = "codex-agent"
+sslmode = "prefer"
+allow_write = false
+
+[connections.local-write]
+host = "127.0.0.1"
+port = 5432
+database = "app"
+username = "app"
+password_env = "PGPASSWORD_APP"
+application_name = "codex-agent"
+sslmode = "prefer"
+allow_write = true
