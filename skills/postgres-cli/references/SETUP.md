@@ -3,7 +3,7 @@
 ## 1. Create config directory
 
 ```bash
-mkdir -p .agent
+mkdir -p .agent/postgres-cli
 ```
 
 ## 2. Install `psql` (Homebrew preferred)
@@ -35,21 +35,23 @@ command -v psql
 psql --version
 ```
 
-## 3. Create `.agent/postgres.toml`
+## 3. Create `.agent/postgres-cli/postgres.toml`
 
 Start from the bundled example:
 
 From this repository root:
 
 ```bash
-cp skills/postgres-cli/references/postgres.toml.example .agent/postgres.toml
+cp skills/postgres-cli/references/postgres.toml.example .agent/postgres-cli/postgres.toml
 ```
 
 From inside the installed skill directory (`.agents/skills/postgres-cli`):
 
 ```bash
-cp references/postgres.toml.example /path/to/your-repo/.agent/postgres.toml
+cp references/postgres.toml.example /path/to/your-repo/.agent/postgres-cli/postgres.toml
 ```
+
+`postgres-cli` resolves config from `.agent/postgres-cli/` only. Keep any additional CLI-only config files in this same directory.
 
 Or create it manually:
 
@@ -88,7 +90,7 @@ export PGPASSWORD_WEBSHOP='your-password'
 Option B (`.agent/.env`):
 
 ```bash
-cat > .agent/.env <<'EOF'
+cat > .agent/postgres-cli/.env <<'EOF'
 PGPASSWORD_WEBSHOP=your-password
 EOF
 ```

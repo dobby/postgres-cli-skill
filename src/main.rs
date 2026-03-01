@@ -6,6 +6,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
+const CONFIG_DIR_NAME: &str = "postgres-cli";
+
 #[derive(Debug, Deserialize)]
 struct Config {
     default_target: Option<String>,
@@ -108,7 +110,7 @@ Usage:\n\
   postgres-cli --project-root <repo> --target <name> --sql \"SELECT 1;\"\n\
   postgres-cli --project-root <repo> --target <name> --introspect tables\n\
 \nFlags:\n\
-  --project-root <path>  Project root containing .agent/postgres.toml (default: cwd)\n\
+  --project-root <path>  Project root containing .agent/postgres-cli/postgres.toml (default: cwd)\n\
   --target <name>        Named connection in config (optional if default_target set)\n\
   --sql <statement>      SQL to execute\n\
   --sql-file <file>      SQL file to execute\n\
@@ -116,20 +118,28 @@ Usage:\n\
     );
 }
 
+fn preferred_config_dir(project_root: &Path) -> PathBuf {
+    project_root.join(".agent").join(CONFIG_DIR_NAME)
+}
+
+fn preferred_config_path(project_root: &Path) -> PathBuf {
+    preferred_config_dir(project_root).join("postgres.toml")
+}
+
 fn load_config(project_root: &Path) -> Result<Config, String> {
-    let config_path = project_root.join(".agent").join("postgres.toml");
+    let config_path = preferred_config_path(project_root);
     let content = fs::read_to_string(&config_path)
         .map_err(|_| format!("Missing or unreadable config: {}", config_path.display()))?;
     toml::from_str::<Config>(&content).map_err(|e| format!("Invalid TOML config: {e}"))
 }
 
 fn load_dotenv(project_root: &Path) -> Result<(), String> {
-    let agent_env = project_root.join(".agent").join(".env");
+    let preferred_env = preferred_config_dir(project_root).join(".env");
     let root_env = project_root.join(".env");
 
-    // Load `.agent/.env` first so values near postgres.toml are preferred.
-    if agent_env.exists() {
-        load_dotenv_file(&agent_env)?;
+    // Load `.agent/postgres-cli/.env` first so postgres-cli-specific values are preferred.
+    if preferred_env.exists() {
+        load_dotenv_file(&preferred_env)?;
     }
     if root_env.exists() {
         load_dotenv_file(&root_env)?;
@@ -267,7 +277,10 @@ fn resolve_psql(config: &Config) -> Result<String, String> {
         }
     }
 
-    Err("psql not found; install libpq/postgresql or set psql_bin in .agent/postgres.toml".to_string())
+    Err(
+        "psql not found; install libpq/postgresql or set psql_bin in .agent/postgres-cli/postgres.toml"
+            .to_string(),
+    )
 }
 
 fn find_in_path(bin: &str) -> Option<String> {
