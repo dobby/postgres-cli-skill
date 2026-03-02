@@ -4,7 +4,7 @@ set -euo pipefail
 # Usage:
 #   scripts/refresh-binaries-from-release.sh <tag>
 # Example:
-#   scripts/refresh-binaries-from-release.sh v0.2.0
+#   scripts/refresh-binaries-from-release.sh v2.1.0
 
 TAG="${1:-}"
 if [[ -z "${TAG}" ]]; then

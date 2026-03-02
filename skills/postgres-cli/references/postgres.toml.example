@@ -1,11 +1,11 @@
 config_version = 2
 default_target = "local-read"
 # Global default search_path for all connections.
-# Array form maps to: SET search_path TO "bellimmo", "public";
-schema = ["bellimmo", "public"]
+# Array form maps to: SET search_path TO "app", "public";
+schema = ["app", "public"]
 # Tables to prioritize in schema-cache mode (`schema-cache update`).
 # Use schema-qualified names to avoid ambiguity.
-important_tables = ["bellimmo.clients", "bellimmo.orders", "public.audit_log"]
+important_tables = ["app.users", "app.orders", "public.audit_log"]
 statement_timeout_ms = 30000
 connect_timeout_s = 10
 # Optional override. If omitted, postgres-cli resolves `psql` from PATH.
@@ -25,7 +25,7 @@ password_env = "PGPASSWORD_APP"
 application_name = "codex-agent"
 sslmode = "prefer"
 # Optional per-connection override. If set, this is used instead of top-level `schema`.
-schema = ["bellimmo", "public"]
+schema = ["app", "public"]
 allow_write = false
 
 [connections.local-write]

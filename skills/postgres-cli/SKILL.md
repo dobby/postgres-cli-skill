@@ -1,5 +1,6 @@
 ---
 name: postgres-cli
+version: 2.1.0
 description: Execute PostgreSQL queries and introspection with named project connections using `postgres-cli` V2. Use when the user asks to inspect data, run SQL, debug schema, validate config, or build schema cache artifacts.
 ---
 
@@ -73,25 +74,25 @@ Subcommands:
 Run read query:
 
 ```bash
-scripts/postgres-cli --project-root /path/to/repo --target webshop-read query --sql "SELECT now();"
+scripts/postgres-cli --project-root /path/to/repo --target app-read query --sql "SELECT now();"
 ```
 
 Run write query intentionally:
 
 ```bash
-scripts/postgres-cli --project-root /path/to/repo --target webshop-write query --mode write --sql "UPDATE users SET active = true WHERE id = 1;"
+scripts/postgres-cli --project-root /path/to/repo --target app-write query --mode write --sql "UPDATE users SET active = true WHERE id = 1;"
 ```
 
 Introspect tables:
 
 ```bash
-scripts/postgres-cli --project-root /path/to/repo --target webshop-read introspect --kind tables
+scripts/postgres-cli --project-root /path/to/repo --target app-read introspect --kind tables
 ```
 
 Explain a query:
 
 ```bash
-scripts/postgres-cli --project-root /path/to/repo --target webshop-read explain --sql "SELECT * FROM users WHERE id = 1;"
+scripts/postgres-cli --project-root /path/to/repo --target app-read explain --sql "SELECT * FROM users WHERE id = 1;"
 ```
 
 Validate config:
@@ -103,19 +104,19 @@ scripts/postgres-cli --project-root /path/to/repo config validate
 Doctor connectivity:
 
 ```bash
-scripts/postgres-cli --project-root /path/to/repo --target webshop-read doctor
+scripts/postgres-cli --project-root /path/to/repo --target app-read doctor
 ```
 
 Update schema cache (JSON only):
 
 ```bash
-scripts/postgres-cli --project-root /path/to/repo --target webshop-read schema-cache update
+scripts/postgres-cli --project-root /path/to/repo --target app-read schema-cache update
 ```
 
 Update schema cache with markdown:
 
 ```bash
-scripts/postgres-cli --project-root /path/to/repo --target webshop-read schema-cache update --with-markdown
+scripts/postgres-cli --project-root /path/to/repo --target app-read schema-cache update --with-markdown
 ```
 
 ## Progressive Schema Loading

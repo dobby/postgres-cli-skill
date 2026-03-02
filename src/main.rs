@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+mod schema_metadata;
+
 const CONFIG_DIR_NAME: &str = "postgres-cli";
 const VERSION: &str = "2.0";
 
@@ -1094,6 +1096,7 @@ fn psql_base_command(
 ) -> Result<Command, AppError> {
     let mut cmd = Command::new(psql_bin);
     cmd.arg("-X")
+        .arg("-q")
         .arg("-v")
         .arg("ON_ERROR_STOP=1")
         .arg("-P")
@@ -1863,49 +1866,6 @@ fn list_available_tables(
     Ok(out)
 }
 
-fn list_direct_table_relations(
-    psql_bin: &str,
-    conn: &Connection,
-    config: &Config,
-    search_path: Option<&str>,
-    timeout_ms_override: Option<u64>,
-) -> Result<Vec<(TableRef, TableRef)>, AppError> {
-    let sql = "SELECT tc.table_schema, tc.table_name, ccu.table_schema, ccu.table_name\nFROM information_schema.table_constraints tc\nJOIN information_schema.constraint_column_usage ccu\n  ON ccu.constraint_name = tc.constraint_name\n AND ccu.constraint_schema = tc.constraint_schema\nWHERE tc.constraint_type = 'FOREIGN KEY'\n  AND tc.table_schema = ANY(current_schemas(false))\n  AND ccu.table_schema = ANY(current_schemas(false))\nORDER BY tc.table_schema, tc.table_name, ccu.table_schema, ccu.table_name;";
-
-    let rows = run_sql_capture_table(
-        psql_bin,
-        conn,
-        config,
-        search_path,
-        sql,
-        timeout_ms_override,
-    )?;
-
-    let table = rows.table.unwrap_or(TableData {
-        columns: vec![],
-        rows: vec![],
-    });
-
-    let mut out = Vec::new();
-    for row in table.rows {
-        if row.len() < 4 {
-            continue;
-        }
-        out.push((
-            TableRef {
-                schema: row[0].trim().to_string(),
-                table: row[1].trim().to_string(),
-            },
-            TableRef {
-                schema: row[2].trim().to_string(),
-                table: row[3].trim().to_string(),
-            },
-        ));
-    }
-
-    Ok(out)
-}
-
 fn expand_with_directly_related_tables(
     selected_tables: Vec<TableRef>,
     relation_pairs: &[(TableRef, TableRef)],
@@ -2010,277 +1970,6 @@ fn resolve_selected_tables(
     }
 
     Ok(selected.into_iter().collect())
-}
-
-fn fetch_columns(
-    psql_bin: &str,
-    conn: &Connection,
-    config: &Config,
-    search_path: Option<&str>,
-    table: &TableRef,
-    timeout_ms_override: Option<u64>,
-) -> Result<Vec<ColumnInfo>, AppError> {
-    let sql = format!(
-        "SELECT ordinal_position, column_name, data_type, is_nullable, COALESCE(column_default, '')\nFROM information_schema.columns\nWHERE table_schema = {}\n  AND table_name = {}\nORDER BY ordinal_position;",
-        sql_literal(&table.schema),
-        sql_literal(&table.table)
-    );
-
-    let rows = run_sql_capture_table(
-        psql_bin,
-        conn,
-        config,
-        search_path,
-        &sql,
-        timeout_ms_override,
-    )?;
-
-    let table = rows.table.unwrap_or(TableData {
-        columns: vec![],
-        rows: vec![],
-    });
-
-    let mut cols = Vec::new();
-    for row in table.rows {
-        if row.len() < 5 {
-            continue;
-        }
-        let ordinal_position = row[0].parse::<usize>().unwrap_or(0);
-        let column_default = if row[4].trim().is_empty() {
-            None
-        } else {
-            Some(row[4].clone())
-        };
-        cols.push(ColumnInfo {
-            ordinal_position,
-            column_name: row[1].clone(),
-            data_type: row[2].clone(),
-            is_nullable: row[3].eq_ignore_ascii_case("YES"),
-            column_default,
-        });
-    }
-
-    Ok(cols)
-}
-
-fn fetch_primary_key_columns(
-    psql_bin: &str,
-    conn: &Connection,
-    config: &Config,
-    search_path: Option<&str>,
-    table: &TableRef,
-    timeout_ms_override: Option<u64>,
-) -> Result<Vec<String>, AppError> {
-    let sql = format!(
-        "SELECT kcu.column_name\nFROM information_schema.table_constraints tc\nJOIN information_schema.key_column_usage kcu\n  ON tc.constraint_name = kcu.constraint_name\n AND tc.constraint_schema = kcu.constraint_schema\n AND tc.table_name = kcu.table_name\nWHERE tc.constraint_type = 'PRIMARY KEY'\n  AND tc.table_schema = {}\n  AND tc.table_name = {}\nORDER BY kcu.ordinal_position;",
-        sql_literal(&table.schema),
-        sql_literal(&table.table)
-    );
-
-    let rows = run_sql_capture_table(
-        psql_bin,
-        conn,
-        config,
-        search_path,
-        &sql,
-        timeout_ms_override,
-    )?;
-
-    Ok(rows
-        .table
-        .unwrap_or(TableData {
-            columns: vec![],
-            rows: vec![],
-        })
-        .rows
-        .into_iter()
-        .filter_map(|r| r.first().cloned())
-        .collect())
-}
-
-fn fetch_outbound_fks(
-    psql_bin: &str,
-    conn: &Connection,
-    config: &Config,
-    search_path: Option<&str>,
-    table: &TableRef,
-    timeout_ms_override: Option<u64>,
-) -> Result<Vec<OutboundFk>, AppError> {
-    let sql = format!(
-        "SELECT tc.constraint_name, kcu.column_name, ccu.table_schema, ccu.table_name, ccu.column_name\nFROM information_schema.table_constraints tc\nJOIN information_schema.key_column_usage kcu\n  ON tc.constraint_name = kcu.constraint_name\n AND tc.constraint_schema = kcu.constraint_schema\n AND tc.table_name = kcu.table_name\nJOIN information_schema.constraint_column_usage ccu\n  ON ccu.constraint_name = tc.constraint_name\n AND ccu.constraint_schema = tc.constraint_schema\nWHERE tc.constraint_type = 'FOREIGN KEY'\n  AND tc.table_schema = {}\n  AND tc.table_name = {}\nORDER BY tc.constraint_name, kcu.ordinal_position;",
-        sql_literal(&table.schema),
-        sql_literal(&table.table)
-    );
-
-    let rows = run_sql_capture_table(
-        psql_bin,
-        conn,
-        config,
-        search_path,
-        &sql,
-        timeout_ms_override,
-    )?;
-
-    let table = rows.table.unwrap_or(TableData {
-        columns: vec![],
-        rows: vec![],
-    });
-
-    let mut out = Vec::new();
-    for row in table.rows {
-        if row.len() < 5 {
-            continue;
-        }
-        out.push(OutboundFk {
-            constraint_name: row[0].clone(),
-            from_column: row[1].clone(),
-            to_schema: row[2].clone(),
-            to_table: row[3].clone(),
-            to_column: row[4].clone(),
-        });
-    }
-
-    Ok(out)
-}
-
-fn fetch_inbound_fks(
-    psql_bin: &str,
-    conn: &Connection,
-    config: &Config,
-    search_path: Option<&str>,
-    table: &TableRef,
-    timeout_ms_override: Option<u64>,
-) -> Result<Vec<InboundFk>, AppError> {
-    let sql = format!(
-        "SELECT tc.table_schema, tc.table_name, tc.constraint_name, kcu.column_name, ccu.column_name\nFROM information_schema.table_constraints tc\nJOIN information_schema.key_column_usage kcu\n  ON tc.constraint_name = kcu.constraint_name\n AND tc.constraint_schema = kcu.constraint_schema\n AND tc.table_name = kcu.table_name\nJOIN information_schema.constraint_column_usage ccu\n  ON ccu.constraint_name = tc.constraint_name\n AND ccu.constraint_schema = tc.constraint_schema\nWHERE tc.constraint_type = 'FOREIGN KEY'\n  AND ccu.table_schema = {}\n  AND ccu.table_name = {}\nORDER BY tc.table_schema, tc.table_name, tc.constraint_name, kcu.ordinal_position;",
-        sql_literal(&table.schema),
-        sql_literal(&table.table)
-    );
-
-    let rows = run_sql_capture_table(
-        psql_bin,
-        conn,
-        config,
-        search_path,
-        &sql,
-        timeout_ms_override,
-    )?;
-
-    let table = rows.table.unwrap_or(TableData {
-        columns: vec![],
-        rows: vec![],
-    });
-
-    let mut out = Vec::new();
-    for row in table.rows {
-        if row.len() < 5 {
-            continue;
-        }
-        out.push(InboundFk {
-            from_schema: row[0].clone(),
-            from_table: row[1].clone(),
-            constraint_name: row[2].clone(),
-            from_column: row[3].clone(),
-            to_column: row[4].clone(),
-        });
-    }
-
-    Ok(out)
-}
-
-fn fetch_indexes(
-    psql_bin: &str,
-    conn: &Connection,
-    config: &Config,
-    search_path: Option<&str>,
-    table: &TableRef,
-    timeout_ms_override: Option<u64>,
-) -> Result<Vec<IndexInfo>, AppError> {
-    let sql = format!(
-        "SELECT indexname, indexdef\nFROM pg_indexes\nWHERE schemaname = {}\n  AND tablename = {}\nORDER BY indexname;",
-        sql_literal(&table.schema),
-        sql_literal(&table.table)
-    );
-
-    let rows = run_sql_capture_table(
-        psql_bin,
-        conn,
-        config,
-        search_path,
-        &sql,
-        timeout_ms_override,
-    )?;
-
-    let table = rows.table.unwrap_or(TableData {
-        columns: vec![],
-        rows: vec![],
-    });
-
-    let mut out = Vec::new();
-    for row in table.rows {
-        if row.len() < 2 {
-            continue;
-        }
-        out.push(IndexInfo {
-            index_name: row[0].clone(),
-            index_def: row[1].clone(),
-        });
-    }
-
-    Ok(out)
-}
-
-fn fetch_table_schema_doc(
-    psql_bin: &str,
-    conn: &Connection,
-    config: &Config,
-    search_path: Option<&str>,
-    table: &TableRef,
-    timeout_ms_override: Option<u64>,
-) -> Result<TableSchemaDoc, AppError> {
-    Ok(TableSchemaDoc {
-        table: table.clone(),
-        columns: fetch_columns(
-            psql_bin,
-            conn,
-            config,
-            search_path,
-            table,
-            timeout_ms_override,
-        )?,
-        primary_key_columns: fetch_primary_key_columns(
-            psql_bin,
-            conn,
-            config,
-            search_path,
-            table,
-            timeout_ms_override,
-        )?,
-        outbound_fks: fetch_outbound_fks(
-            psql_bin,
-            conn,
-            config,
-            search_path,
-            table,
-            timeout_ms_override,
-        )?,
-        inbound_fks: fetch_inbound_fks(
-            psql_bin,
-            conn,
-            config,
-            search_path,
-            table,
-            timeout_ms_override,
-        )?,
-        indexes: fetch_indexes(
-            psql_bin,
-            conn,
-            config,
-            search_path,
-            table,
-            timeout_ms_override,
-        )?,
-    })
 }
 
 fn markdown_escape(value: &str) -> String {
@@ -2615,31 +2304,28 @@ fn run_schema_cache_update(
         args.timeout_ms,
     )?;
 
-    let relation_pairs = list_direct_table_relations(
-        &psql_bin,
-        conn,
-        config,
-        search_path.as_deref(),
-        args.timeout_ms,
-    )?;
-
     let mut selected_tables = resolve_selected_tables(&available_tables, config, args.all_tables)?;
     if !args.all_tables {
-        selected_tables = expand_with_directly_related_tables(selected_tables, &relation_pairs);
-    }
-    validate_table_file_name_collisions(&selected_tables, file_naming)?;
-
-    let mut docs = Vec::new();
-    for table in &selected_tables {
-        docs.push(fetch_table_schema_doc(
+        let relation_pairs = schema_metadata::list_direct_table_relations(
             &psql_bin,
             conn,
             config,
             search_path.as_deref(),
-            table,
+            &selected_tables,
             args.timeout_ms,
-        )?);
+        )?;
+        selected_tables = expand_with_directly_related_tables(selected_tables, &relation_pairs);
     }
+    validate_table_file_name_collisions(&selected_tables, file_naming)?;
+
+    let docs = schema_metadata::fetch_table_schema_docs_batch(
+        &psql_bin,
+        conn,
+        config,
+        search_path.as_deref(),
+        &selected_tables,
+        args.timeout_ms,
+    )?;
 
     let mut edge_set = BTreeSet::new();
     for doc in &docs {
@@ -3130,7 +2816,7 @@ mod tests {
     fn table_mode_collision_check_fails_for_same_table_in_multiple_schemas() {
         let selected = vec![
             TableRef {
-                schema: "bellimmo".to_string(),
+                schema: "tenant_a".to_string(),
                 table: "account".to_string(),
             },
             TableRef {
@@ -3147,7 +2833,7 @@ mod tests {
     fn schema_table_mode_collision_check_allows_duplicate_table_names() {
         let selected = vec![
             TableRef {
-                schema: "bellimmo".to_string(),
+                schema: "tenant_a".to_string(),
                 table: "account".to_string(),
             },
             TableRef {
