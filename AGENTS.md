@@ -26,6 +26,7 @@ This file explains how the Rust code is split so agent-driven edits can stay foc
 ## Release and Skill Versioning
 - `skills/postgres-cli/SKILL.md` must include a `version` field in the frontmatter.
 - Every GitHub push that changes the skill behavior, command examples, setup flow, or safety rules must increment that `version`.
+- Every release must create and push a matching Git tag (for example `v2.1.0`) so CI release workflows are triggered from the tag.
 - Use semantic versioning (`MAJOR.MINOR.PATCH`):
   - `MAJOR`: breaking changes in workflow/contract.
   - `MINOR`: additive improvements and new documented capabilities.
