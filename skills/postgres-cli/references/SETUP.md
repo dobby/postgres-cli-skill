@@ -3,7 +3,7 @@
 ## 1. Create config directory
 
 ```bash
-mkdir -p .agent/postgres-cli
+mkdir -p .agents/postgres-cli
 ```
 
 ## 2. Install `psql`
@@ -37,22 +37,23 @@ command -v psql
 psql --version
 ```
 
-## 3. Create `.agent/postgres-cli/postgres.toml`
+## 3. Create `.agents/postgres-cli/postgres.toml`
 
 From repository root:
 
 ```bash
-cp skills/postgres-cli/references/postgres.toml.example .agent/postgres-cli/postgres.toml
+cp skills/postgres-cli/references/postgres.toml.example .agents/postgres-cli/postgres.toml
 ```
 
-The CLI resolves config from `.agent/postgres-cli/postgres.toml`.
+The CLI resolves config from `.agents/postgres-cli/postgres.toml`.
+Legacy fallback: if missing, it also checks `.agent/postgres-cli/postgres.toml`.
 
 ## 4. Configure secrets with env vars
 
 Preferred location:
 
 ```bash
-cat > .agent/postgres-cli/.env <<'EOFVARS'
+cat > .agents/postgres-cli/.env <<'EOFVARS'
 PGPASSWORD_APP=your-password
 # Optional DSN mode:
 # DATABASE_URL_APP=postgres://user:pass@127.0.0.1:5432/app
@@ -70,6 +71,16 @@ Secrets policy:
 skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo config validate
 skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read doctor
 ```
+
+## Agent safety policy
+
+- Agents must run database operations through `skills/postgres-cli/scripts/postgres-cli`.
+- Agents must not execute `psql` directly.
+- Agents must not read `.agents/.agent` `postgres.toml` or `.env` files directly.
+- Target resolution for agents:
+  - If user supplies a target, pass `--target <name>`.
+  - If user does not supply a target, omit `--target` and rely on `default_target`.
+  - If command returns `TARGET_MISSING`, ask user for a target name.
 
 ## 6. Run queries and introspection
 
@@ -114,7 +125,7 @@ skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target l
 Generated artifacts (JSON-first):
 
 ```text
-.agent/postgres-cli/schema/
+.agents/postgres-cli/schema/
 ├── index.json
 ├── relations.json
 └── tables/
@@ -124,7 +135,7 @@ Generated artifacts (JSON-first):
 Optional markdown artifacts when `--with-markdown` is enabled:
 
 ```text
-.agent/postgres-cli/schema/
+.agents/postgres-cli/schema/
 ├── README.md
 ├── relations.md
 └── tables/
@@ -133,7 +144,7 @@ Optional markdown artifacts when `--with-markdown` is enabled:
 
 ## Troubleshooting
 
-- `CONFIG_NOT_FOUND`: create `.agent/postgres-cli/postgres.toml`.
+- `CONFIG_NOT_FOUND`: create `.agents/postgres-cli/postgres.toml`.
 - `PSQL_NOT_FOUND`: install `psql` or set `psql_bin` in config.
 - `TARGET_UNKNOWN`: use `targets list` to discover configured targets.
 - `TARGET_WRITE_DISABLED`: run on a target with `allow_write = true` for `--mode write`.

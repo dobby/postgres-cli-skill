@@ -24,6 +24,18 @@ skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target l
 skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read schema-cache update --all-tables
 ```
 
+## Agent safety
+
+- Agents must use `skills/postgres-cli/scripts/postgres-cli` for DB operations.
+- Agents must not run `psql` directly.
+- Agents must not read `.agents/.agent` `postgres.toml` or `.env` files directly.
+
+## Target resolution
+
+- If the user provides a connection name, pass `--target <name>`.
+- If `--target` is omitted, CLI falls back to `default_target`.
+- If no target is provided and no `default_target` exists, CLI returns `TARGET_MISSING`.
+
 ## Output formats
 
 Global `--format` supports:
@@ -35,10 +47,13 @@ Global `--format` supports:
 
 `csv`/`tsv` are available for tabular commands only.
 
+Config, dotenv, and schema-cache artifacts are now stored under `.agents/postgres-cli/`.
+For compatibility, the CLI still reads legacy config from `.agent/postgres-cli/postgres.toml`.
+
 ## Schema cache layout (JSON-first)
 
 ```text
-.agent/postgres-cli/schema/
+.agents/postgres-cli/schema/
 ├── index.json
 ├── relations.json
 └── tables/
@@ -48,7 +63,7 @@ Global `--format` supports:
 Optional markdown (with `schema-cache update --with-markdown`):
 
 ```text
-.agent/postgres-cli/schema/
+.agents/postgres-cli/schema/
 ├── README.md
 ├── relations.md
 └── tables/

@@ -14,6 +14,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 mod schema_metadata;
 
 const CONFIG_DIR_NAME: &str = "postgres-cli";
+const PREFERRED_AGENT_DIR_NAME: &str = ".agents";
+const LEGACY_AGENT_DIR_NAME: &str = ".agent";
 const VERSION: &str = "2.0";
 
 #[derive(Debug, Clone, Copy)]
@@ -744,21 +746,61 @@ fn render_table_text(table: &TableData) -> String {
 }
 
 fn preferred_config_dir(project_root: &Path) -> PathBuf {
-    project_root.join(".agent").join(CONFIG_DIR_NAME)
+    project_root
+        .join(PREFERRED_AGENT_DIR_NAME)
+        .join(CONFIG_DIR_NAME)
+}
+
+fn legacy_config_dir(project_root: &Path) -> PathBuf {
+    project_root
+        .join(LEGACY_AGENT_DIR_NAME)
+        .join(CONFIG_DIR_NAME)
 }
 
 fn preferred_config_path(project_root: &Path) -> PathBuf {
     preferred_config_dir(project_root).join("postgres.toml")
 }
 
+fn legacy_config_path(project_root: &Path) -> PathBuf {
+    legacy_config_dir(project_root).join("postgres.toml")
+}
+
 fn load_config(project_root: &Path) -> Result<Config, AppError> {
-    let config_path = preferred_config_path(project_root);
-    let content = fs::read_to_string(&config_path).map_err(|_| {
-        AppError::cli(
-            "CONFIG_NOT_FOUND",
-            format!("Missing or unreadable config: {}", config_path.display()),
-        )
-    })?;
+    let preferred_path = preferred_config_path(project_root);
+    let legacy_path = legacy_config_path(project_root);
+
+    let content = match fs::read_to_string(&preferred_path) {
+        Ok(content) => content,
+        Err(preferred_error) => {
+            if preferred_error.kind() != io::ErrorKind::NotFound {
+                return Err(AppError::cli(
+                    "CONFIG_NOT_FOUND",
+                    format!("Missing or unreadable config: {}", preferred_path.display()),
+                ));
+            }
+
+            match fs::read_to_string(&legacy_path) {
+                Ok(content) => content,
+                Err(legacy_error) => {
+                    if legacy_error.kind() != io::ErrorKind::NotFound {
+                        return Err(AppError::cli(
+                            "CONFIG_NOT_FOUND",
+                            format!("Missing or unreadable config: {}", legacy_path.display()),
+                        ));
+                    }
+
+                    return Err(AppError::cli(
+                        "CONFIG_NOT_FOUND",
+                        format!(
+                            "Missing config. Checked {} and {}",
+                            preferred_path.display(),
+                            legacy_path.display()
+                        ),
+                    ));
+                }
+            }
+        }
+    };
 
     toml::from_str::<Config>(&content)
         .map_err(|e| AppError::cli("CONFIG_INVALID_TOML", format!("Invalid TOML config: {e}")))
@@ -766,10 +808,14 @@ fn load_config(project_root: &Path) -> Result<Config, AppError> {
 
 fn load_dotenv(project_root: &Path) -> Result<(), AppError> {
     let preferred_env = preferred_config_dir(project_root).join(".env");
+    let legacy_env = legacy_config_dir(project_root).join(".env");
     let root_env = project_root.join(".env");
 
     if preferred_env.exists() {
         load_dotenv_file(&preferred_env)?;
+    }
+    if legacy_env.exists() {
+        load_dotenv_file(&legacy_env)?;
     }
     if root_env.exists() {
         load_dotenv_file(&root_env)?;
@@ -918,7 +964,7 @@ fn resolve_psql(config: &Config) -> Result<String, AppError> {
 
     Err(AppError::runtime(
         "PSQL_NOT_FOUND",
-        "psql not found; install libpq/postgresql or set psql_bin in .agent/postgres-cli/postgres.toml",
+        "psql not found; install libpq/postgresql or set psql_bin in .agents/postgres-cli/postgres.toml",
     ))
 }
 
@@ -1895,7 +1941,7 @@ fn resolve_selected_tables(
     let requested = config.important_tables.as_ref().ok_or_else(|| {
         AppError::cli(
             "IMPORTANT_TABLES_MISSING",
-            "Missing top-level important_tables in .agent/postgres-cli/postgres.toml",
+            "Missing top-level important_tables in .agents/postgres-cli/postgres.toml",
         )
     })?;
 
@@ -2279,7 +2325,7 @@ fn run_schema_cache_update(
         let important = config.important_tables.as_ref().ok_or_else(|| {
             AppError::cli(
                 "IMPORTANT_TABLES_MISSING",
-                "Missing top-level important_tables in .agent/postgres-cli/postgres.toml",
+                "Missing top-level important_tables in .agents/postgres-cli/postgres.toml",
             )
         })?;
         if important.is_empty() {
@@ -2857,6 +2903,76 @@ password = "secret"
         let cfg: Config = toml::from_str(toml).expect("valid toml parse");
         let err = run_config_validate(&cfg, None).expect_err("should fail");
         assert_eq!(err.code, "CONFIG_VALIDATION_FAILED");
+    }
+
+    #[test]
+    fn resolve_target_prefers_explicit_target_over_default() {
+        let toml = r#"
+config_version = 2
+default_target = "read"
+[connections.read]
+database = "app"
+username = "postgres"
+allow_write = false
+[connections.write]
+database = "app"
+username = "postgres"
+allow_write = true
+"#;
+        let cfg: Config = toml::from_str(toml).expect("valid toml parse");
+        let (target_name, conn) =
+            resolve_target(&cfg, Some("write")).expect("explicit target should resolve");
+        assert_eq!(target_name, "write");
+        assert_eq!(conn.allow_write, Some(true));
+    }
+
+    #[test]
+    fn resolve_target_uses_default_when_target_omitted() {
+        let toml = r#"
+config_version = 2
+default_target = "read"
+[connections.read]
+database = "app"
+username = "postgres"
+allow_write = false
+[connections.write]
+database = "app"
+username = "postgres"
+allow_write = true
+"#;
+        let cfg: Config = toml::from_str(toml).expect("valid toml parse");
+        let (target_name, conn) =
+            resolve_target(&cfg, None).expect("default target should resolve");
+        assert_eq!(target_name, "read");
+        assert_eq!(conn.allow_write, Some(false));
+    }
+
+    #[test]
+    fn resolve_target_errors_when_no_target_and_no_default() {
+        let toml = r#"
+config_version = 2
+[connections.read]
+database = "app"
+username = "postgres"
+"#;
+        let cfg: Config = toml::from_str(toml).expect("valid toml parse");
+        let err = resolve_target(&cfg, None).expect_err("target should be required");
+        assert_eq!(err.code, "TARGET_MISSING");
+    }
+
+    #[test]
+    fn resolve_target_errors_on_unknown_target() {
+        let toml = r#"
+config_version = 2
+default_target = "read"
+[connections.read]
+database = "app"
+username = "postgres"
+"#;
+        let cfg: Config = toml::from_str(toml).expect("valid toml parse");
+        let err = resolve_target(&cfg, Some("missing")).expect_err("unknown target should fail");
+        assert_eq!(err.code, "TARGET_UNKNOWN");
+        assert!(err.message.contains("Unknown target 'missing'"));
     }
 
     #[test]
