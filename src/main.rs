@@ -16,7 +16,7 @@ mod schema_metadata;
 const CONFIG_DIR_NAME: &str = "postgres-cli";
 const PREFERRED_AGENT_DIR_NAME: &str = ".agents";
 const LEGACY_AGENT_DIR_NAME: &str = ".agent";
-const VERSION: &str = "2.0";
+const VERSION: &str = "2.3.1";
 
 #[derive(Debug, Clone, Copy)]
 enum ExitKind {
@@ -808,14 +808,10 @@ fn load_config(project_root: &Path) -> Result<Config, AppError> {
 
 fn load_dotenv(project_root: &Path) -> Result<(), AppError> {
     let preferred_env = preferred_config_dir(project_root).join(".env");
-    let legacy_env = legacy_config_dir(project_root).join(".env");
     let root_env = project_root.join(".env");
 
     if preferred_env.exists() {
         load_dotenv_file(&preferred_env)?;
-    }
-    if legacy_env.exists() {
-        load_dotenv_file(&legacy_env)?;
     }
     if root_env.exists() {
         load_dotenv_file(&root_env)?;
@@ -2812,12 +2808,38 @@ fn run_doctor(
 mod tests {
     use super::*;
     use clap::CommandFactory;
+    use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     fn config_minimal_toml(extra: &str) -> String {
         format!(
             "{}\nconfig_version = 2\n[connections.dev]\ndatabase = \"app\"\nusername = \"postgres\"\n",
             extra
         )
+    }
+
+    fn unique_test_temp_dir() -> PathBuf {
+        let suffix = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock should be monotonic")
+            .as_nanos();
+        let dir = env::temp_dir().join(format!(
+            "postgres_cli_test_{}_{}_{}",
+            std::process::id(),
+            nanos,
+            suffix
+        ));
+        fs::create_dir_all(&dir).expect("test temp dir should be creatable");
+        dir
+    }
+
+    fn unique_env_key(prefix: &str) -> String {
+        let suffix = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
+        format!("{}_{}_{}", prefix, std::process::id(), suffix)
     }
 
     #[test]
@@ -3000,5 +3022,42 @@ username = "postgres"
         let sql = build_explain_sql(&args, "SELECT 1");
         assert!(sql.contains("ANALYZE true"));
         assert!(sql.contains("VERBOSE true"));
+    }
+
+    #[test]
+    fn load_dotenv_prefers_agents_over_agent_for_same_key() {
+        let project_root = unique_test_temp_dir();
+        let key = unique_env_key("POSTGRES_CLI_ENV_PRIORITY");
+        let preferred_path = preferred_config_dir(&project_root).join(".env");
+
+        fs::create_dir_all(preferred_path.parent().expect("preferred parent")).expect("mkdir");
+        fs::write(&preferred_path, format!("{key}=preferred\n")).expect("write preferred env");
+
+        env::remove_var(&key);
+        load_dotenv(&project_root).expect("dotenv should load");
+        assert_eq!(
+            env::var(&key).expect("env key should be set"),
+            "preferred".to_string()
+        );
+
+        env::remove_var(&key);
+        fs::remove_dir_all(&project_root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn load_dotenv_ignores_legacy_agent_env_when_agents_missing() {
+        let project_root = unique_test_temp_dir();
+        let key = unique_env_key("POSTGRES_CLI_ENV_NO_LEGACY_FALLBACK");
+        let legacy_path = legacy_config_dir(&project_root).join(".env");
+
+        fs::create_dir_all(legacy_path.parent().expect("legacy parent")).expect("mkdir");
+        fs::write(&legacy_path, format!("{key}=legacy\n")).expect("write legacy env");
+
+        env::remove_var(&key);
+        load_dotenv(&project_root).expect("dotenv should load");
+        assert!(env::var_os(&key).is_none());
+
+        env::remove_var(&key);
+        fs::remove_dir_all(&project_root).expect("cleanup temp dir");
     }
 }

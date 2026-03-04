@@ -1,6 +1,6 @@
 ---
 name: postgres-cli
-version: 2.3.0
+version: 2.3.1
 description: Execute PostgreSQL queries and introspection with named project connections using `postgres-cli` V2. Use when the user asks to inspect data, run SQL, debug schema, validate config, or build schema cache artifacts.
 ---
 
