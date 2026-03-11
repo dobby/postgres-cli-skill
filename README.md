@@ -13,20 +13,22 @@ V2 is a clean-break release with:
 ## Quick usage
 
 ```bash
-skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read query --sql "SELECT now();"
+.agents/skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read query --sql "SELECT now();"
 ```
 
 ```bash
-skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read introspect --kind tables
+.agents/skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read introspect --kind tables
 ```
 
 ```bash
-skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read schema-cache update --all-tables
+.agents/skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read schema-cache update --all-tables
 ```
 
 ## Agent safety
 
-- Agents must use `skills/postgres-cli/scripts/postgres-cli` for DB operations.
+- Agents must use the installed skill launcher for DB operations.
+- Canonical installed path: `.agents/skills/postgres-cli/scripts/postgres-cli`.
+- If the consuming repo provides a root wrapper, prefer `scripts/postgres-cli`.
 - Agents must not run `psql` directly.
 - Agents must not read `.agents/.agent` `postgres.toml` or `.env` files directly.
 

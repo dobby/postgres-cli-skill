@@ -39,10 +39,12 @@ psql --version
 
 ## 3. Create `.agents/postgres-cli/postgres.toml`
 
+Assuming the skill is vendored into `.agents/skills/postgres-cli`:
+
 From repository root:
 
 ```bash
-cp skills/postgres-cli/references/postgres.toml.example .agents/postgres-cli/postgres.toml
+cp .agents/skills/postgres-cli/references/postgres.toml.example .agents/postgres-cli/postgres.toml
 ```
 
 The CLI resolves config from `.agents/postgres-cli/postgres.toml`.
@@ -68,13 +70,21 @@ Secrets policy:
 ## 5. Validate config and connectivity
 
 ```bash
-skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo config validate
-skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read doctor
+.agents/skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo config validate
+.agents/skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read doctor
+```
+
+If the consuming repo adds a repo-root wrapper, agents should use:
+
+```bash
+scripts/postgres-cli --project-root /path/to/repo config validate
 ```
 
 ## Agent safety policy
 
-- Agents must run database operations through `skills/postgres-cli/scripts/postgres-cli`.
+- Agents must run database operations through the installed skill launcher.
+- Canonical installed path: `.agents/skills/postgres-cli/scripts/postgres-cli`
+- If the repo provides a root wrapper, prefer `scripts/postgres-cli`.
 - Agents must not execute `psql` directly.
 - Agents must not read `.agents/.agent` `postgres.toml` or `.env` files directly.
 - Target resolution for agents:
@@ -87,19 +97,19 @@ skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target l
 Read query:
 
 ```bash
-skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read query --sql "SELECT now();"
+.agents/skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read query --sql "SELECT now();"
 ```
 
 Write query (explicit):
 
 ```bash
-skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-write query --mode write --sql "UPDATE users SET active = true WHERE id = 1;"
+.agents/skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-write query --mode write --sql "UPDATE users SET active = true WHERE id = 1;"
 ```
 
 Introspect tables:
 
 ```bash
-skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read introspect --kind tables
+.agents/skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read introspect --kind tables
 ```
 
 ## 7. Build schema cache for progressive agent context
@@ -107,19 +117,19 @@ skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target l
 Configured `important_tables` (+ direct FK neighbors):
 
 ```bash
-skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read schema-cache update
+.agents/skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read schema-cache update
 ```
 
 All tables in `current_schemas(false)`:
 
 ```bash
-skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read schema-cache update --all-tables
+.agents/skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read schema-cache update --all-tables
 ```
 
 Generate optional markdown too:
 
 ```bash
-skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read schema-cache update --with-markdown
+.agents/skills/postgres-cli/scripts/postgres-cli --project-root /path/to/repo --target local-read schema-cache update --with-markdown
 ```
 
 Generated artifacts (JSON-first):

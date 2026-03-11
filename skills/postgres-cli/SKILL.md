@@ -1,6 +1,6 @@
 ---
 name: postgres-cli
-version: 2.3.1
+version: 2.4.0
 description: Execute PostgreSQL queries and introspection with named project connections using `postgres-cli` V2. Use when the user asks to inspect data, run SQL, debug schema, validate config, or build schema cache artifacts.
 ---
 
@@ -10,7 +10,7 @@ Use `postgres-cli` to query PostgreSQL through named connection targets.
 
 ## Platform Support
 
-- `scripts/postgres-cli` is a launcher script.
+- `scripts/postgres-cli` is the canonical launcher path inside the installed skill directory.
 - Prebuilt binaries are expected in `scripts/bin/` for:
   - macOS arm64 (`postgres-cli-darwin-arm64`)
   - Linux x86_64 (`postgres-cli-linux-x86_64`)
@@ -71,7 +71,7 @@ Subcommands:
 
 ## Operational Guardrails
 
-- MUST use `scripts/postgres-cli` for all database interactions.
+- MUST use `scripts/postgres-cli` from the installed skill directory for all database interactions.
 - MUST NOT execute `psql` directly, even if `psql` is installed.
 - MUST NOT read secret/config files directly:
   - `.agents/postgres-cli/postgres.toml`
@@ -152,3 +152,4 @@ When schema context is needed, use this order:
 - Default to `--format json` for machine parsing.
 - Prefer `query --mode read` unless the user explicitly requests data mutation.
 - Return relevant result rows and summarize key findings.
+- If a consuming repo provides a repo-root `scripts/postgres-cli` wrapper, prefer that path to avoid launcher discovery work.
