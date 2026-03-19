@@ -15,7 +15,6 @@ mod schema_metadata;
 
 const CONFIG_DIR_NAME: &str = "postgres-cli";
 const PREFERRED_AGENT_DIR_NAME: &str = ".agents";
-const LEGACY_AGENT_DIR_NAME: &str = ".agent";
 const VERSION: &str = "2.3.1";
 
 #[derive(Debug, Clone, Copy)]
@@ -751,56 +750,25 @@ fn preferred_config_dir(project_root: &Path) -> PathBuf {
         .join(CONFIG_DIR_NAME)
 }
 
-fn legacy_config_dir(project_root: &Path) -> PathBuf {
-    project_root
-        .join(LEGACY_AGENT_DIR_NAME)
-        .join(CONFIG_DIR_NAME)
-}
-
 fn preferred_config_path(project_root: &Path) -> PathBuf {
     preferred_config_dir(project_root).join("postgres.toml")
 }
 
-fn legacy_config_path(project_root: &Path) -> PathBuf {
-    legacy_config_dir(project_root).join("postgres.toml")
-}
-
 fn load_config(project_root: &Path) -> Result<Config, AppError> {
     let preferred_path = preferred_config_path(project_root);
-    let legacy_path = legacy_config_path(project_root);
-
-    let content = match fs::read_to_string(&preferred_path) {
-        Ok(content) => content,
-        Err(preferred_error) => {
-            if preferred_error.kind() != io::ErrorKind::NotFound {
-                return Err(AppError::cli(
-                    "CONFIG_NOT_FOUND",
-                    format!("Missing or unreadable config: {}", preferred_path.display()),
-                ));
-            }
-
-            match fs::read_to_string(&legacy_path) {
-                Ok(content) => content,
-                Err(legacy_error) => {
-                    if legacy_error.kind() != io::ErrorKind::NotFound {
-                        return Err(AppError::cli(
-                            "CONFIG_NOT_FOUND",
-                            format!("Missing or unreadable config: {}", legacy_path.display()),
-                        ));
-                    }
-
-                    return Err(AppError::cli(
-                        "CONFIG_NOT_FOUND",
-                        format!(
-                            "Missing config. Checked {} and {}",
-                            preferred_path.display(),
-                            legacy_path.display()
-                        ),
-                    ));
-                }
-            }
+    let content = fs::read_to_string(&preferred_path).map_err(|error| {
+        if error.kind() == io::ErrorKind::NotFound {
+            AppError::cli(
+                "CONFIG_NOT_FOUND",
+                format!("Missing config. Checked {}", preferred_path.display()),
+            )
+        } else {
+            AppError::cli(
+                "CONFIG_NOT_FOUND",
+                format!("Missing or unreadable config: {}", preferred_path.display()),
+            )
         }
-    };
+    })?;
 
     toml::from_str::<Config>(&content)
         .map_err(|e| AppError::cli("CONFIG_INVALID_TOML", format!("Invalid TOML config: {e}")))
@@ -3025,7 +2993,7 @@ username = "postgres"
     }
 
     #[test]
-    fn load_dotenv_prefers_agents_over_agent_for_same_key() {
+    fn load_dotenv_prefers_agents_dir_for_same_key() {
         let project_root = unique_test_temp_dir();
         let key = unique_env_key("POSTGRES_CLI_ENV_PRIORITY");
         let preferred_path = preferred_config_dir(&project_root).join(".env");
@@ -3045,19 +3013,44 @@ username = "postgres"
     }
 
     #[test]
-    fn load_dotenv_ignores_legacy_agent_env_when_agents_missing() {
+    fn load_dotenv_prefers_agent_dir_over_root_when_both_set() {
         let project_root = unique_test_temp_dir();
-        let key = unique_env_key("POSTGRES_CLI_ENV_NO_LEGACY_FALLBACK");
-        let legacy_path = legacy_config_dir(&project_root).join(".env");
+        let key = unique_env_key("POSTGRES_CLI_ENV_PRIORITY");
+        let preferred_path = preferred_config_dir(&project_root).join(".env");
+        let root_path = project_root.join(".env");
 
-        fs::create_dir_all(legacy_path.parent().expect("legacy parent")).expect("mkdir");
-        fs::write(&legacy_path, format!("{key}=legacy\n")).expect("write legacy env");
+        fs::create_dir_all(preferred_path.parent().expect("preferred parent")).expect("mkdir");
+        fs::write(&preferred_path, format!("{key}=preferred\n")).expect("write preferred env");
+        fs::write(&root_path, format!("{key}=root\n")).expect("write root env");
 
         env::remove_var(&key);
         load_dotenv(&project_root).expect("dotenv should load");
-        assert!(env::var_os(&key).is_none());
+        assert_eq!(env::var(&key).expect("env key should be set"), "preferred");
 
         env::remove_var(&key);
+        fs::remove_dir_all(&project_root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn load_config_checks_only_preferred_agent_dir() {
+        let project_root = unique_test_temp_dir();
+        let unrelated_legacy_like_path = project_root
+            .join(".legacy-config")
+            .join("postgres-cli")
+            .join("postgres.toml");
+        fs::create_dir_all(
+            unrelated_legacy_like_path
+                .parent()
+                .expect("legacy-like parent"),
+        )
+        .expect("mkdir");
+        fs::write(&unrelated_legacy_like_path, "config_version = 2\n").expect("write legacy test config");
+
+        let preferred_path = preferred_config_path(&project_root);
+        let err = load_config(&project_root).expect_err("missing preferred config should fail");
+        assert_eq!(err.code, "CONFIG_NOT_FOUND");
+        assert_eq!(err.message, format!("Missing config. Checked {}", preferred_path.display()));
+
         fs::remove_dir_all(&project_root).expect("cleanup temp dir");
     }
 }

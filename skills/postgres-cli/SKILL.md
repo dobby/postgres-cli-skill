@@ -1,6 +1,6 @@
 ---
 name: postgres-cli
-version: 2.4.0
+version: 2.5.1
 description: Execute PostgreSQL queries and introspection with named project connections using `postgres-cli` V2. Use when the user asks to inspect data, run SQL, debug schema, validate config, or build schema cache artifacts.
 ---
 
@@ -75,9 +75,7 @@ Subcommands:
 - MUST NOT execute `psql` directly, even if `psql` is installed.
 - MUST NOT read secret/config files directly:
   - `.agents/postgres-cli/postgres.toml`
-  - `.agent/postgres-cli/postgres.toml`
   - `.agents/postgres-cli/.env`
-  - `.agent/postgres-cli/.env`
   - `.env` at repository root
 - MUST treat target selection as:
   - If the user provides a connection name, pass `--target <name>`.

@@ -48,7 +48,6 @@ cp .agents/skills/postgres-cli/references/postgres.toml.example .agents/postgres
 ```
 
 The CLI resolves config from `.agents/postgres-cli/postgres.toml`.
-Legacy fallback: if missing, it also checks `.agent/postgres-cli/postgres.toml`.
 
 ## 4. Configure secrets with env vars
 
@@ -86,7 +85,7 @@ scripts/postgres-cli --project-root /path/to/repo config validate
 - Canonical installed path: `.agents/skills/postgres-cli/scripts/postgres-cli`
 - If the repo provides a root wrapper, prefer `scripts/postgres-cli`.
 - Agents must not execute `psql` directly.
-- Agents must not read `.agents/.agent` `postgres.toml` or `.env` files directly.
+- Agents must not read `.agents/postgres-cli/postgres.toml` or `.env` files directly.
 - Target resolution for agents:
   - If user supplies a target, pass `--target <name>`.
   - If user does not supply a target, omit `--target` and rely on `default_target`.

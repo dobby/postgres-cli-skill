@@ -30,7 +30,7 @@ V2 is a clean-break release with:
 - Canonical installed path: `.agents/skills/postgres-cli/scripts/postgres-cli`.
 - If the consuming repo provides a root wrapper, prefer `scripts/postgres-cli`.
 - Agents must not run `psql` directly.
-- Agents must not read `.agents/.agent` `postgres.toml` or `.env` files directly.
+- Agents must not read `.agents/postgres-cli/postgres.toml` or `.env` files directly.
 
 ## Target resolution
 
@@ -50,7 +50,6 @@ Global `--format` supports:
 `csv`/`tsv` are available for tabular commands only.
 
 Config, dotenv, and schema-cache artifacts are now stored under `.agents/postgres-cli/`.
-For compatibility, the CLI still reads legacy config from `.agent/postgres-cli/postgres.toml`.
 
 ## Schema cache layout (JSON-first)
 
